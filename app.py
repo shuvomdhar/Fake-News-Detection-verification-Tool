@@ -1440,6 +1440,263 @@ def admin_users():
     users = User.query.order_by(User.created_at.desc()).all()
     return render_template('admin/users.html', users=users)
 
+@app.route('/admin/users/add', methods=['POST'])
+@login_required
+@admin_required
+def admin_add_user():
+    """Add a new user from admin panel"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+
+        # Validate required fields
+        required_fields = ['name', 'email', 'role', 'password']
+        for field in required_fields:
+            if field not in data or not data[field]:
+                return jsonify({
+                    'success': False,
+                    'message': f'{field.replace("_", " ").title()} is required.'
+                }), 400
+
+        # Validate email format
+        import re
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, data['email']):
+            return jsonify({
+                'success': False,
+                'message': 'Please enter a valid email address.'
+            }), 400
+
+        # Check if email already exists
+        existing_user = User.query.filter_by(email=data['email']).first()
+        if existing_user:
+            return jsonify({
+                'success': False,
+                'message': 'A user with this email already exists.'
+            }), 400
+
+        # Validate password length
+        if len(data['password']) < 8:
+            return jsonify({
+                'success': False,
+                'message': 'Password must be at least 8 characters long.'
+            }), 400
+
+        # Create new user
+        new_user = User(
+            name=data['name'],
+            email=data['email'],
+            role=data['role'],
+            password=generate_password_hash(data['password'], method='pbkdf2:sha256'),
+            is_active=True,  # New users are active by default
+            created_at=datetime.now(timezone.utc)
+        )
+
+        # Add to database
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'User {new_user.name} added successfully!',
+            'user': {
+                'id': new_user.id,
+                'name': new_user.name,
+                'email': new_user.email,
+                'role': new_user.role
+            }
+        }), 201
+
+    except Exception as e:
+        app.logger.error(f"Error adding user: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while adding the user. Please try again.'
+        }), 500
+
+
+@app.route('/admin/users/edit/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def admin_edit_user(user_id):
+    """Edit an existing user"""
+    try:
+        user = User.query.get_or_404(user_id)
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+
+        # Check if user is trying to modify themselves
+        if user.id == current_user.id and ('role' in data or 'is_active' in data):
+            return jsonify({
+                'success': False,
+                'message': 'You cannot modify your own role or status.'
+            }), 403
+
+        # Update user fields if provided
+        if 'name' in data:
+            user.name = data['name'].strip()
+
+        if 'email' in data:
+            email = data['email'].strip()
+            # Validate email format
+            import re
+            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_regex, email):
+                return jsonify({
+                    'success': False,
+                    'message': 'Please enter a valid email address.'
+                }), 400
+
+            # Check if email is being changed and not already taken
+            if user.email != email:
+                existing = User.query.filter_by(email=email).first()
+                if existing and existing.id != user.id:
+                    return jsonify({
+                        'success': False,
+                        'message': 'This email is already in use by another user.'
+                    }), 400
+                user.email = email
+
+        if 'role' in data and data['role'] in ['user', 'admin']:
+            user.role = data['role']
+
+        if 'is_active' in data:
+            user.is_active = bool(data['is_active'])
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'User {user.name} updated successfully!'
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error updating user {user_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while updating the user.'
+        }), 500
+
+
+@app.route('/admin/users/make_admin/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def make_user_admin(user_id):
+    """Promote a user to admin - use existing route but return JSON"""
+    try:
+        user = User.query.get_or_404(user_id)
+
+        # Check if user is trying to modify themselves
+        if user.id == current_user.id:
+            return jsonify({
+                'success': False,
+                'message': 'You cannot change your own role.'
+            }), 403
+
+        # Update role to admin
+        user.role = 'admin'
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'User {user.name} is now an admin!'
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error making user admin {user_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while updating user role.'
+        }), 500
+
+
+@app.route('/admin/users/toggle_status/<int:user_id>', methods=['POST'])
+@login_required
+@admin_required
+def toggle_user_status(user_id):
+    """Toggle user active/inactive status - use existing route but return JSON"""
+    try:
+        user = User.query.get_or_404(user_id)
+
+        # Check if user is trying to modify themselves
+        if user.id == current_user.id:
+            return jsonify({
+                'success': False,
+                'message': 'You cannot change your own status.'
+            }), 403
+
+        # Toggle status
+        user.is_active = not user.is_active
+        db.session.commit()
+
+        status = "activated" if user.is_active else "deactivated"
+        return jsonify({
+            'success': True,
+            'message': f'User {user.name} has been {status}!'
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error toggling user status {user_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while updating user status.'
+        }), 500
+
+
+@app.route('/admin/user/<int:user_id>/delete', methods=['POST'])
+@login_required
+@admin_required
+def admin_delete_user(user_id):
+    """Delete a user (admin only)"""
+    try:
+        user = User.query.get_or_404(user_id)
+
+        # Check if user is trying to delete themselves
+        if user.id == current_user.id:
+            return jsonify({
+                'success': False,
+                'message': 'You cannot delete your own account.'
+            }), 403
+
+        # Check if user has analyses
+        analysis_count = len(user.analyses)
+
+        # Store user info for message
+        user_name = user.name
+        user_email = user.email
+
+        # Delete the user
+        db.session.delete(user)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'User {user_name} ({user_email}) deleted successfully!',
+            'analyses_deleted': analysis_count
+        })
+
+    except Exception as e:
+        app.logger.error(f"Error deleting user {user_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while deleting the user.'
+        }), 500
+
 
 @app.route('/admin/analyses')
 @login_required
@@ -1447,50 +1704,91 @@ def admin_users():
 def admin_analyses():
     page = request.args.get('page', 1, type=int)
     per_page = 20
-    analyses = Analysis.query.order_by(Analysis.created_at.desc()).paginate(page=page, per_page=per_page,
-                                                                            error_out=False)
-    return render_template('admin/analyses.html', analyses=analyses)
 
+    # Start with base query
+    query = Analysis.query
 
-@app.route('/admin/user/<int:user_id>/toggle', methods=['POST'])
-@login_required
-@admin_required
-def toggle_user_status(user_id):
-    user = User.query.get_or_404(user_id)
-    if user.id == current_user.id:
-        flash('Cannot modify your own account', 'danger')
-        return redirect(url_for('admin_users'))
-    user.is_active = not user.is_active
-    db.session.commit()
-    flash(f'User {user.email} has been {"activated" if user.is_active else "deactivated"}', 'success')
-    return redirect(url_for('admin_users'))
+    # Get filter parameters
+    classification = request.args.get('classification')
+    user_id = request.args.get('user_id')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    confidence_range = request.args.get('confidence_range')
+    min_credibility = request.args.get('min_credibility')
+    max_sensationalism = request.args.get('max_sensationalism')
 
+    # Apply filters
+    if classification:
+        query = query.filter(Analysis.classification == classification)
 
-@app.route('/admin/user/<int:user_id>/make_admin', methods=['POST'])
-@login_required
-@admin_required
-def make_user_admin(user_id):
-    user = User.query.get_or_404(user_id)
-    user.role = 'admin'
-    db.session.commit()
-    flash(f'User {user.email} is now an administrator', 'success')
-    return redirect(url_for('admin_users'))
+    if user_id and user_id.isdigit():
+        query = query.filter(Analysis.user_id == int(user_id))
 
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            query = query.filter(Analysis.created_at >= start_date_obj)
+        except ValueError:
+            pass
 
-@app.route('/analysis/<int:analysis_id>/delete', methods=['POST'])
-@login_required
-@admin_required
-def delete_analysis(analysis_id):
-    """Delete an analysis (admin only)"""
-    try:
-        analysis = Analysis.query.get_or_404(analysis_id)
-        db.session.delete(analysis)
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Analysis deleted successfully'})
-    except Exception as e:
-        app.logger.error(f"Error deleting analysis {analysis_id}: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            # Add one day to include the entire end day
+            end_date_obj = end_date_obj + timedelta(days=1)
+            query = query.filter(Analysis.created_at < end_date_obj)
+        except ValueError:
+            pass
 
+    # Confidence range filter
+    if confidence_range == 'high':
+        query = query.filter(Analysis.confidence_score >= 0.7)
+    elif confidence_range == 'medium':
+        query = query.filter(Analysis.confidence_score >= 0.4, Analysis.confidence_score < 0.7)
+    elif confidence_range == 'low':
+        query = query.filter(Analysis.confidence_score < 0.4)
+
+    # Credibility filter
+    if min_credibility:
+        try:
+            min_cred = float(min_credibility)
+            query = query.filter(Analysis.credibility_score >= min_cred)
+        except (ValueError, TypeError):
+            pass
+
+    # Sensationalism filter
+    if max_sensationalism:
+        try:
+            max_sens = float(max_sensationalism)
+            query = query.filter(Analysis.sensationalism_score <= max_sens)
+        except (ValueError, TypeError):
+            pass
+
+    # Order by latest
+    query = query.order_by(Analysis.created_at.desc())
+
+    # Paginate results
+    analyses = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    # Calculate stats for dashboard
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_count = Analysis.query.filter(Analysis.created_at >= today_start).count()
+
+    yesterday_start = today_start - timedelta(days=1)
+    yesterday_count = Analysis.query.filter(
+        Analysis.created_at >= yesterday_start,
+        Analysis.created_at < today_start
+    ).count()
+
+    if yesterday_count > 0:
+        daily_change = round(((today_count - yesterday_count) / yesterday_count) * 100, 1)
+    else:
+        daily_change = 0.0
+
+    return render_template('admin/analyses.html',
+                           analyses=analyses,
+                           today_count=today_count,
+                           daily_change=daily_change)
 
 @app.route('/api/health')
 def health_check():
