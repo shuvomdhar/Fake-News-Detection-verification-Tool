@@ -265,6 +265,14 @@ FAKE_NEWS_DETECTION_AND_VERIFICATION_TOOL/
 
 ---
 
+## 📄 Documentation
+
+Watch the documentation of the project below:
+- PDF Link: [Fake-News-Detection-Verification-Tool.pdf](https://github.com/shuvomdhar/Fake-News-Detection-verification-Tool/blob/main/Fake-News-Detection-Verification-Tool.pdf)
+- PPT Link: [Fake-News-Detection-Verification-Tool.pptx](https://www.canva.com/design/DAHAXjCacGo/BtRSzjdAtiRyjTPWdgXpyA/edit?utm_content=DAHAXjCacGo&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
+
+---
+
 ## 🤝 Contributing
 
 Contributions are welcome! Here's how you can help:

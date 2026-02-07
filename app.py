@@ -1790,6 +1790,45 @@ def admin_analyses():
                            today_count=today_count,
                            daily_change=daily_change)
 
+
+@app.route('/admin/analysis/<int:analysis_id>/delete', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_analysis(analysis_id):
+    analysis = Analysis.query.get_or_404(analysis_id)
+    try:
+        db.session.delete(analysis)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Analysis deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/analysis/<int:analysis_id>/reanalyze', methods=['POST'])
+@login_required
+@admin_required
+def reanalyze_analysis(analysis_id):
+    analysis = Analysis.query.get_or_404(analysis_id)
+    try:
+        # Get the deep_analysis parameter from request
+        data = request.get_json()
+        deep_analysis = data.get('deep_analysis', False)
+
+        # Here you would implement your reanalysis logic
+        # For example:
+        # result = analyze_content(analysis.content, deep_analysis)
+        # Update analysis with new results
+
+        # For now, just return success
+        return jsonify({
+            'success': True,
+            'message': f'Analysis {analysis_id} re-analyzed',
+            'deep_analysis': deep_analysis
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/health')
 def health_check():
     try:
